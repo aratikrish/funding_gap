@@ -1,0 +1,325 @@
+---
+title: "FP/RH Commodity Funding Gap Analysis"
+subtitle: "February 2024"
+author: ""
+format: 
+  dashboard:
+    orientation: columns
+editor: visual
+execute: 
+  echo: false # dont include code , override in sections as needed.
+  output: false # dont include output, override in sections as needed.
+  warning: false # dont include warnings
+params: 
+  time_period: !expr c("2024-2","2024-3","2024-4","2025-1") 
+---
+
+```{r purpose_version}
+# Purpose: Wrangling data from funding status per supply plan in the GFPVAN 
+#           for quarterly commodity funding analysis
+# Version: Feb 2024  Build off the gap_fundingstatuspersp.R script
+```
+
+```{r initial_setup}
+
+# load packages ------------------------------------------------
+pacman::p_load("tidyverse",
+               "rio",      # for import/export
+               "janitor",  # for data cleaning
+               "here",     # for relative file paths
+               "ggplot2",
+               "RColorBrewer",
+               "gt",
+               "ggiraph"
+            )
+
+
+# For exploring character or factor columns, it is useful to have a see_distinct function -------------------------------------------------------------
+see_distinct <- function(df, var){
+  df |> 
+    distinct({{ var }}) |> 
+    arrange({{ var }}) |> 
+    pull()
+}
+```
+
+```{r importdata_supplyplan}
+
+supplyplan_raw <- import(here("data/raw_data", "funding_status_per_sp_240207.xlsx"),
+                  na = c("", " ","NA"),
+                  )
+
+importdate_pds <- "Feb 2024"
+
+#TO DO check why using import results in "" not being read as NAs and warnings
+```
+
+```{r datawrangling_supplyplan1}
+
+supplyplan_raw |> glimpse()
+
+# clean names
+supplyplan <- supplyplan_raw |> 
+  clean_names() |>  
+  glimpse() 
+
+supplyplan <- supplyplan |>  
+  # rename columns
+  rename(   
+    # NEW       = OLD
+    country     = country_name,
+    supply_plan = supply_plan_description) |> 
+  # remove the total qty column
+  select(!total_qty_funded_firm_supply_plan_value) |> 
+  glimpse()
+
+### Data wrangling - pivot longer to make supplyplan tidy ####
+
+# funding status needs to be a column, not part of a column name
+
+supplyplan <- supplyplan |> 
+  # rename the columns that need to be gathered
+  # quantity columns need to be renamed to start with quantity_
+  # value columns need to start with value_
+  # so do it first for value columns as they end with _value_supply_plan
+  # then do it for quantity columns as they end with _supply_plan
+    rename_with( ~ paste0("value_", str_remove(.x, "_value_supply_plan")) ,
+              .cols = ends_with("_value_supply_plan")) |>
+    rename_with( ~ paste0("quantity_", str_remove(.x, "_supply_plan")) ,
+              .cols = ends_with("_supply_plan")) 
+
+supplyplan <- supplyplan |> 
+  # then pivot_longer to gather
+  pivot_longer(
+    cols = starts_with("quantity_") | starts_with("value_"),
+    names_to = c(".value", "funding_status"),
+    names_sep = "_",
+    values_drop_na = TRUE ) |> 
+  glimpse()
+
+#### Data Wrangling - Analyzing categorical columns ####
+
+skimr::skim(supplyplan)
+
+# basic categorical check
+see_distinct(supplyplan, country) # note there is -
+see_distinct(supplyplan, supply_plan)
+see_distinct(supplyplan, l3_method)
+see_distinct(supplyplan, l5_product)
+see_distinct(supplyplan, date)
+see_distinct(supplyplan, collab_review_status) # note per Maggie - is used for a product that is no longer managed
+see_distinct(supplyplan, last_updated_in_the_van)
+see_distinct(supplyplan, supplier)
+see_distinct(supplyplan, funding_source)
+see_distinct(supplyplan, funding_status)
+
+# Check if there are unfunded lines that have a source.
+supplyplan |>
+  filter(funding_status == "unfunded",
+         collab_review_status %in% c("Ready To Use Approved",
+                                     "Ready To Use Estimate",
+                                      "In Review"),
+         !funding_source  %in% c("-","TBD"),
+         value != 0.0) |>
+  select(country, funding_source, funding_status, value, date) |>
+  distinct(country, funding_source, funding_status, value, date) |> 
+  gt()
+
+#TODO There are 9 lines that are unfunded but have a funding source. INVESTIGATE
+
+# clean up funding source
+supplyplan <- supplyplan |>
+  mutate(funding_source = str_replace(
+    string = funding_source,
+    pattern = "To be determined|To Be Determined|ToBeDetermined|None Selected|Unknown",
+    replacement = "TBD"
+  ))
+
+#not including this in the previous TBD replacement as that would result in all - being replaced with TBD even if they are a part of a name
+supplyplan <- supplyplan |> 
+  mutate(funding_source = case_when((funding_source == "-") ~ "TBD", 
+                                     TRUE ~ funding_source))
+
+#TODO Check funding status for funding source TBD
+
+# Changing field "date" to a date
+supplyplan <- supplyplan |> 
+  mutate(date_required = lubridate::my(date),
+         year_quarter_required = str_c(year(date_required),
+                                       "-",
+                                       quarter(date_required)))
+
+supplyplan |> 
+  distinct(year_quarter_required, date_required,date) |> 
+  arrange(year_quarter_required, date_required,date) |> 
+  gt()
+```
+
+```{r cleaning_fundingsource}
+#| eval: false
+
+# Note that GF global fund and GFF global financing facility are separate entities
+supplyplan <- supplyplan |>
+  mutate(funding_source = str_replace(string = funding_source,
+                                      pattern = "Global Fund to Fight AIDS, Tuberculosis and Malaria|^GF$",
+                                      replacement = "Global Fund" ))
+
+supplyplan <- supplyplan |> 
+  mutate(funding_source = case_when(
+                            str_detect(funding_source, regex("^Banque Mondiale", ignore_case = TRUE)) ~ "World Bank",
+                            str_detect(funding_source,regex("United Nations International Children",ignore_case = TRUE)) ~ "UNICEF",
+                            str_detect(funding_source,regex("President's Emergency Plan For AIDS Relief",ignore_case = TRUE)) ~ "PEPFAR",
+                            str_detect(funding_source,regex("BMGFF|Bill & Melinda Gates Foundation",ignore_case = TRUE)) ~ "BMGF",
+                            str_detect(funding_source,"^DOHS") ~ "DOHS",
+                            str_detect(funding_source, regex("DOHS|GOK|MOH|government|CMAM|Ministry|GOT|PNA|CAMEG|ETAT",ignore_case = TRUE)) ~ "Government",
+                            str_detect(funding_source,regex("kingdom of netherlands",ignore_case = TRUE)) ~ "Kingdom of Netherlands",
+                            str_detect(funding_source,regex("Planned Parenthood Federation",ignore_case = TRUE)) ~ "IPPF",
+                            str_detect(funding_source,regex("United States Agency for International Development|Most likely USAID",ignore_case = TRUE)) ~ "USAID",
+                            str_detect(funding_source,regex("United Nations Population Fund",ignore_case = TRUE)) ~ "UNFPA",
+                            str_detect(funding_source,regex("West African Health Organization",ignore_case = TRUE)) ~ "WAHO",
+                            str_detect(funding_source,regex("Populations Services International",ignore_case = TRUE)) ~ "PSI",
+                            str_detect(funding_source,regex("others|other",ignore_case = TRUE)) ~ "Other",
+                            TRUE ~ funding_source))
+  
+sort(unique(supplyplan$funding_source))
+
+```
+
+```{r datawrangling_supplyplan2}
+# get a pivot of L5 and L3 from supply plan
+productpivot <- supplyplan |>
+  distinct(l3_method, l5_product)
+
+#### Defining PRH country categories ####
+tier1 <- c("Afghanistan",
+               "Angola",
+               "Benin",
+               "Burkina Faso",
+               "Burundi",
+               "Cameroon",
+               "Côte d’Ivoire", 
+               "Cote d'Ivoire",
+              "DRC", "Congo (the Democratic Republic of the)",
+              "Ethiopia", 
+              "Ghana", 
+              "Haiti", 
+              "Guinea",
+              "Kenya", 
+              "Liberia", 
+              "Madagascar", 
+              "Mali", 
+              "Mozambique",
+              "Niger",
+              "Nigeria", 
+              "Pakistan",
+              "Philippines", 
+              "Senegal", 
+              "South Sudan", 
+              "Tanzania", 
+              "Togo",
+              "Uganda",
+              "Yemen",
+              "Zambia")
+
+tier2 <- c("Cambodia", 
+          "Egypt",  
+          "Guatemala", 
+          "Jordan", 
+          "Malawi", 
+          "Nepal", 
+          "Rwanda",
+          "Sierra Leone",
+          "Timor Leste",
+          "Zimbabwe")
+
+tier3 <- c("Bangladesh",
+           "India")
+
+supplyplan <- supplyplan |>
+  mutate(prh_countrygroup = 
+           case_when(country %in% tier1 ~ "High Need",
+                     country %in% tier2 ~ "Strategic Support",
+                    country %in% tier3 ~ "Strategic Transition",
+                      TRUE ~ "other"))
+
+#### Data Wrangling - Analyzing numeric and date columns ####
+
+supplyplan |>
+  select_if(is.numeric) |>
+  skimr::skim()
+
+#### Exporting data ####
+
+export(supplyplan, 
+       file = here("data/wrangled_data", "supplyplanwrangled.csv"))
+```
+
+```{r dataviz_setup}
+
+# Setting the theme for visualization -------------------------------------------------------------
+
+color_title <- "#202020" #  "#202020"
+color_caption <- "#909090"  # "#000000"
+color_plot_text <- color_plot_text <- "#505050" # "#000000"
+      
+line <- 10
+    
+mytheme <- function() {
+      theme_classic() +
+        theme(plot.title = element_text(size = 14,
+                                        color = color_title,
+                                        face = "bold",
+                                        margin = margin(b = line),
+                                        hjust = 0),
+              
+              plot.title.position = "plot", #Move plot.title to the left
+              
+              plot.subtitle = element_text(size = 12,
+                                           face = "bold",
+                                           color = color_plot_text,
+                                           hjust = 0), 
+              
+              plot.caption = element_text(size = 10,
+                                          color = color_caption,
+                                          face = "italic",
+                                          margin = margin(t = line),
+                                          hjust = 0, # left-align caption
+                                          vjust = 2),
+              
+              plot.caption.position = "plot",
+              
+              plot.margin = ggplot2::margin(15, 15, 10, 15), #top, right, bottom, left
+              
+              axis.title = element_text(size = 12, # adjusts both axes titles
+                                        color = color_caption,
+                                        vjust = 2),          
+              axis.text.x = element_text(size = 10,
+                                      #   angle = 60, 
+                                      #   hjust = 1,
+                                         color = color_plot_text),
+              axis.text.y = element_text(size = 10,
+                                         color = color_plot_text),
+              
+              # axis.ticks = element_blank(),
+              
+              # axis.line = element_blank(),
+              
+              legend.position = "right",
+              legend.title = element_blank(),
+              legend.text = element_text(size = 10,
+                                         color = color_plot_text)
+              
+              # text =  element_text(color = color_plot_text,
+              # this will change all text size (except geom_text)
+              #                          size = 14,
+              #                          hjust = 0.5)
+        )
+      
+}
+
+# other data viz setup
+
+
+```
+
+# 
