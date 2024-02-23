@@ -11,7 +11,8 @@ execute:
   output: false # dont include output, override in sections as needed.
   warning: false # dont include warnings
 params: 
-  time_period: !expr c("2024-2","2024-3","2024-4","2025-1") 
+  time_period: !expr c("2021-1","2021-2","2021-3","2021-4","2022-1","2022-2","2022-3","2022-4","2023-1","2023-2","2023-3","2023-4","2024-1","2024-2","2024-3","2024-4","2025-1") 
+  next_4quarters: !expr c("2024-2","2024-3","2024-4","2025-1") 
 ---
 
 ```{r purpose_version}
@@ -73,7 +74,7 @@ supplyplan <- supplyplan |>
   select(!total_qty_funded_firm_supply_plan_value) |> 
   glimpse()
 
-### Data wrangling - pivot longer to make supplyplan tidy ####
+# pivot longer to make supplyplan tidy
 
 # funding status needs to be a column, not part of a column name
 
@@ -97,7 +98,7 @@ supplyplan <- supplyplan |>
     values_drop_na = TRUE ) |> 
   glimpse()
 
-#### Data Wrangling - Analyzing categorical columns ####
+# Analyzing categorical columns
 
 skimr::skim(supplyplan)
 
@@ -142,6 +143,26 @@ supplyplan <- supplyplan |>
 
 #TODO Check funding status for funding source TBD
 
+see_distinct(supplyplan, funding_source)
+
+#make funding source a factor and set levels to determine the order of appearance in charts
+supplyplan <- supplyplan |>
+  mutate(funding_source_group =  case_when
+         (funding_source == "USAID" ~ "USAID",
+          funding_source == "UNFPA C.O. Co-financing agreement" ~ "UNFPA C.O. Co-financing agreement",
+          funding_source == "UNFPA" ~ "UNFPA",
+          funding_source == "Government" ~ "Government",
+          funding_source == "TBD" ~ "TBD",
+          TRUE ~ "other"),
+         funding_source_group = factor(funding_source_group,
+                                       levels = c("TBD",
+                                                  "other",
+                                                  "Government",
+                                                  "UNFPA",
+                                                  "UNFPA C.O. Co-financing agreement",
+                                                  "USAID"
+                                                )))
+
 # Changing field "date" to a date
 supplyplan <- supplyplan |> 
   mutate(date_required = lubridate::my(date),
@@ -153,36 +174,6 @@ supplyplan |>
   distinct(year_quarter_required, date_required,date) |> 
   arrange(year_quarter_required, date_required,date) |> 
   gt()
-```
-
-```{r cleaning_fundingsource}
-#| eval: false
-
-# Note that GF global fund and GFF global financing facility are separate entities
-supplyplan <- supplyplan |>
-  mutate(funding_source = str_replace(string = funding_source,
-                                      pattern = "Global Fund to Fight AIDS, Tuberculosis and Malaria|^GF$",
-                                      replacement = "Global Fund" ))
-
-supplyplan <- supplyplan |> 
-  mutate(funding_source = case_when(
-                            str_detect(funding_source, regex("^Banque Mondiale", ignore_case = TRUE)) ~ "World Bank",
-                            str_detect(funding_source,regex("United Nations International Children",ignore_case = TRUE)) ~ "UNICEF",
-                            str_detect(funding_source,regex("President's Emergency Plan For AIDS Relief",ignore_case = TRUE)) ~ "PEPFAR",
-                            str_detect(funding_source,regex("BMGFF|Bill & Melinda Gates Foundation",ignore_case = TRUE)) ~ "BMGF",
-                            str_detect(funding_source,"^DOHS") ~ "DOHS",
-                            str_detect(funding_source, regex("DOHS|GOK|MOH|government|CMAM|Ministry|GOT|PNA|CAMEG|ETAT",ignore_case = TRUE)) ~ "Government",
-                            str_detect(funding_source,regex("kingdom of netherlands",ignore_case = TRUE)) ~ "Kingdom of Netherlands",
-                            str_detect(funding_source,regex("Planned Parenthood Federation",ignore_case = TRUE)) ~ "IPPF",
-                            str_detect(funding_source,regex("United States Agency for International Development|Most likely USAID",ignore_case = TRUE)) ~ "USAID",
-                            str_detect(funding_source,regex("United Nations Population Fund",ignore_case = TRUE)) ~ "UNFPA",
-                            str_detect(funding_source,regex("West African Health Organization",ignore_case = TRUE)) ~ "WAHO",
-                            str_detect(funding_source,regex("Populations Services International",ignore_case = TRUE)) ~ "PSI",
-                            str_detect(funding_source,regex("others|other",ignore_case = TRUE)) ~ "Other",
-                            TRUE ~ funding_source))
-  
-sort(unique(supplyplan$funding_source))
-
 ```
 
 ```{r datawrangling_supplyplan2}
@@ -322,4 +313,216 @@ mytheme <- function() {
 
 ```
 
-# 
+# High Need: Overall
+
+## Col1 actual value
+
+```{r dataviz_highneed_value}
+#| output: true
+
+#gg_supplyplan_grouped <-
+supplyplan |> 
+  filter(prh_countrygroup == "High Need",
+         collab_review_status %in% c("In Review",
+                                     "Ready to Use Approved",
+                                     "Ready to Use Estimate"),
+         year_quarter_required %in% params$time_period) |> 
+   ggplot(aes(x = year_quarter_required,
+             y = value,
+             fill = funding_source_group)) +
+#  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
+  geom_col() +
+  scale_fill_brewer(palette = "YlGnBu") +
+  labs(
+    x = "",
+    y = "FP/RH Commodity Value "
+  ) +
+  mytheme() +
+  theme(axis.text.x = element_text(hjust = 1,
+                                   angle = 60))+
+  scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale()) ) 
+#  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
+#                               str_c("$",value),
+#                               "")),
+#            position = position_fill(vjust=0.5),
+#            colour="white", 
+#            size = 2)
+
+# girafe(
+#   ggobj = gg_supplyplan_grouped,
+#   options = list(opts_sizing(rescale = FALSE),
+#                  opts_tooltip(zindex = 9999),
+#                  opts_hover(css = ''),
+#                  opts_hover_inv(css = 'opacity:0.2;'))
+#   )
+```
+
+## Col2 stacked percentage chart
+
+```{r dataviz_highneed_percent}
+#| output: true
+
+# time_period <- c("2024-2","2024-3","2024-4","2025-1") 
+
+# can use stat=count in geom_bar (with pds and no y in aes) to get a percent stacked chart, however in order to get the percentages to use in text, we need to calculate them first and then use stat= identity iwth a y in aes.
+
+supplyplan_grouped <- supplyplan |> 
+  filter(prh_countrygroup == "High Need",
+         collab_review_status %in% c("In Review",
+                                     "Ready to Use Approved",
+                                     "Ready to Use Estimate"),
+         year_quarter_required %in% params$time_period) |> 
+  group_by(year_quarter_required, funding_source_group) |> 
+  dplyr::tally() |> 
+  dplyr::mutate(percent= round(n/sum(n),2)) 
+
+# doing a count instead of group_by/tally will not change n but will change sum(n)-- with a count sum(n) is sum of n across all groups, with group_by/tally sum(n) is sum of n in the immediate higher group
+
+#gg_supplyplan_grouped <-
+supplyplan_grouped |> 
+   ggplot(aes(x = year_quarter_required,
+             y = n,
+             fill = funding_source_group)) +
+#  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
+  geom_bar(
+                        stat = "identity",
+                       position = "fill") +
+  scale_fill_brewer(palette = "YlGnBu") +
+  labs(
+    x = "",
+    y = "FP/RH Commodity Value (%)"
+  ) +
+  mytheme() +
+  theme(axis.text.x = element_text(hjust = 1,
+                                   angle = 60))+
+  scale_y_continuous(labels = scales::percent) 
+#  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
+#                               str_c(percent*100,"%"),
+#                               "")),
+#            position = position_fill(vjust=0.5),
+#            colour="white", 
+#            size = 2)
+
+# girafe(
+#   ggobj = gg_supplyplan_grouped,
+#   options = list(opts_sizing(rescale = FALSE),
+#                  opts_tooltip(zindex = 9999),
+#                  opts_hover(css = ''),
+#                  opts_hover_inv(css = 'opacity:0.2;'))
+#   )
+```
+
+# High Need: By country
+
+
+## Col1 actual value
+
+```{r dataviz_highneed_value_country}
+#| output: true
+
+#gg_supplyplan_grouped <-
+supplyplan |> 
+  filter(prh_countrygroup == "High Need",
+         collab_review_status %in% c("In Review",
+                                     "Ready to Use Approved",
+                                     "Ready to Use Estimate"),
+         year_quarter_required %in% params$next_4quarters) |> 
+   ggplot(aes(x = country,
+             y = value,
+             fill = funding_source_group)) +
+#  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
+  geom_col() +
+  scale_fill_brewer(palette = "YlGnBu") +
+  labs(
+    title = "Funding landscape for the next 4 quarters",
+    subtitle = "",
+    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:",
+                    importdate_pds,
+                    sep = " "),
+    x = "",
+    y = "FP/RH Commodity Value "
+  ) +
+  mytheme() +
+  theme(axis.text.x = element_text(hjust = 1,
+                                   angle = 60))+
+  scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale()) ) + 
+#  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
+#                               str_c("$",value),
+#                               "")),
+#            position = position_fill(vjust=0.5),
+#            colour="white", 
+#            size = 2)
+  coord_flip()
+
+# girafe(
+#   ggobj = gg_supplyplan_grouped,
+#   options = list(opts_sizing(rescale = FALSE),
+#                  opts_tooltip(zindex = 9999),
+#                  opts_hover(css = ''),
+#                  opts_hover_inv(css = 'opacity:0.2;'))
+#   )
+```
+
+## Col2 stacked percentage chart
+
+```{r dataviz_highneed_percent_country}
+#| output: true
+
+# time_period <- c("2024-2","2024-3","2024-4","2025-1") 
+
+# can use stat=count in geom_bar (with pds and no y in aes) to get a percent stacked chart, however in order to get the percentages to use in text, we need to calculate them first and then use stat= identity iwth a y in aes.
+
+supplyplan_grouped <- supplyplan |> 
+  filter(prh_countrygroup == "High Need",
+         collab_review_status %in% c("In Review",
+                                     "Ready to Use Approved",
+                                     "Ready to Use Estimate"),
+         year_quarter_required %in% params$time_period) |> 
+  group_by(country, funding_source_group) |> 
+  dplyr::tally() |> 
+  dplyr::mutate(percent= round(n/sum(n),2)) 
+
+# doing a count instead of group_by/tally will not change n but will change sum(n)-- with a count sum(n) is sum of n across all groups, with group_by/tally sum(n) is sum of n in the immediate higher group
+
+#gg_supplyplan_grouped <-
+supplyplan_grouped |> 
+   ggplot(aes(x = country,
+             y = n,
+             fill = funding_source_group)) +
+#  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
+  geom_bar(             stat = "identity",
+                       position = "fill") +
+  scale_fill_brewer(palette = "YlGnBu") +
+  labs(
+#    title = str_c("In ", 
+#                  params$time_period,
+#                  ", ", 
+#                  percent_reasoncode,
+#                  "% of orders had a reason code applied"),
+    subtitle = (""),
+    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:",
+                    importdate_pds,
+                    sep = " "),
+    x = "",
+    y = "FP/RH Commodity Value (%) "
+  ) +
+  mytheme() +
+  theme(axis.text.x = element_text(hjust = 1,
+                                   angle = 60))+
+  scale_y_continuous(labels = scales::percent) +
+#  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
+#                               str_c(percent*100,"%"),
+#                               "")),
+#            position = position_fill(vjust=0.5),
+#            colour="white", 
+#            size = 2)
+  coord_flip()
+
+# girafe(
+#   ggobj = gg_supplyplan_grouped,
+#   options = list(opts_sizing(rescale = FALSE),
+#                  opts_tooltip(zindex = 9999),
+#                  opts_hover(css = ''),
+#                  opts_hover_inv(css = 'opacity:0.2;'))
+#   )
+```
