@@ -31,7 +31,8 @@ pacman::p_load("tidyverse",
                "ggplot2",
                "RColorBrewer",
                "gt",
-               "ggiraph"
+               "ggiraph",
+               "patchwork" # for 2 plots side by side
             )
 
 
@@ -181,7 +182,7 @@ supplyplan |>
 productpivot <- supplyplan |>
   distinct(l3_method, l5_product)
 
-#### Defining PRH country categories ####
+# Defining PRH country categories 
 tier1 <- c("Afghanistan",
                "Angola",
                "Benin",
@@ -233,21 +234,25 @@ supplyplan <- supplyplan |>
                     country %in% tier3 ~ "Strategic Transition",
                       TRUE ~ "other"))
 
-#### Data Wrangling - Analyzing numeric and date columns ####
+supplyplan |>
+  distinct(prh_countrygroup, country) |> 
+  arrange(prh_countrygroup, country) |> 
+  gt()
+# Data Wrangling - Analyzing numeric and date columns 
 
 supplyplan |>
   select_if(is.numeric) |>
   skimr::skim()
 
-#### Exporting data ####
+# Exporting data 
 
 export(supplyplan, 
        file = here("data/wrangled_data", "supplyplanwrangled.csv"))
 ```
 
-```{r dataviz_setup}
+```{r dataviz_setup_mytheme}
 
-# Setting the theme for visualization -------------------------------------------------------------
+# Setting the theme for visualization
 
 color_title <- "#202020" #  "#202020"
 color_caption <- "#909090"  # "#000000"
@@ -295,10 +300,7 @@ mytheme <- function() {
               
               # axis.line = element_blank(),
               
-              legend.position = "right",
-              legend.title = element_blank(),
-              legend.text = element_text(size = 10,
-                                         color = color_plot_text)
+         
               
               # text =  element_text(color = color_plot_text,
               # this will change all text size (except geom_text)
@@ -308,44 +310,60 @@ mytheme <- function() {
       
 }
 
-# other data viz setup
-
-
 ```
 
-# High Need: Overall
+```{r dataviz_setup_overallvalue}
 
-## Col1 actual value
-
-```{r dataviz_highneed_value}
-#| output: true
-
-#gg_supplyplan_grouped <-
-supplyplan |> 
-  filter(prh_countrygroup == "High Need",
-         collab_review_status %in% c("In Review",
-                                     "Ready to Use Approved",
-                                     "Ready to Use Estimate"),
-         year_quarter_required %in% params$time_period) |> 
-   ggplot(aes(x = year_quarter_required,
-             y = value,
-             fill = funding_source_group)) +
-#  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
+gg_supplyplan_overall <- function(countrygroup){
+supplyplan |>
+  filter(
+    prh_countrygroup == countrygroup,
+    collab_review_status %in% c(
+      "In Review",
+      "Ready to Use Approved",
+      "Ready to Use Estimate"
+    ),
+    year_quarter_required %in% params$time_period
+  ) |>
+  ggplot(aes(
+    x = year_quarter_required,
+    y = value,
+    fill = funding_source_group
+  )) +
+  #  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
   geom_col() +
-  scale_fill_brewer(palette = "YlGnBu") +
+  scale_fill_manual(values = c(
+    "#8c510a", # TBD
+    "#d8b365", # Other
+    "#f6e8c3", # Govt
+    "#c7eae5", # UNFPA
+    "#5ab4ac", # UNFPA CO financing
+    "#01665e"  # USAID 
+  )) + 
   labs(
+    caption = str_c("Data source: Supply plans from the GFPVAN\nData downloaded:",
+      importdate_pds, "\nDifferent quarters may include a different set of countries and programs",
+      sep = " "
+    ),
     x = "",
     y = "FP/RH Commodity Value "
   ) +
   mytheme() +
-  theme(axis.text.x = element_text(hjust = 1,
-                                   angle = 60))+
-  scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale()) ) 
+  theme(axis.text.x = element_text(
+    hjust = 1,
+    angle = 60
+  )) +
+  theme(     legend.position = "right",
+              legend.title = element_blank(),
+              legend.text = element_text(size = 10,
+                                         color = color_plot_text)
+             )+
+  scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale()))
 #  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
 #                               str_c("$",value),
 #                               "")),
 #            position = position_fill(vjust=0.5),
-#            colour="white", 
+#            colour="white",
 #            size = 2)
 
 # girafe(
@@ -355,12 +373,334 @@ supplyplan |>
 #                  opts_hover(css = ''),
 #                  opts_hover_inv(css = 'opacity:0.2;'))
 #   )
+}
+
 ```
 
-## Col2 stacked percentage chart
+```{r dataviz_setup_numberprograms}
+
+gg_numberprograms <- function(countrygroup){
+  
+supplyplan |>
+  filter(
+    prh_countrygroup == "High Need",
+    collab_review_status %in% c(
+      "In Review",
+      "Ready to Use Approved",
+      "Ready to Use Estimate"
+    ),
+    year_quarter_required %in% params$time_period
+  ) |>
+  group_by(year_quarter_required) |>
+  summarise(numberprograms = n_distinct(str_c(country, " ", supply_plan))) |> 
+  gt()
+}
+
+```
+
+```{r dataviz_setup_countryvalue}
+
+
+gg_supplyplan_country <- function(countrygroup){
+  supplyplan |>
+  filter(
+    prh_countrygroup == countrygroup,
+    collab_review_status %in% c(
+      "In Review",
+      "Ready to Use Approved",
+      "Ready to Use Estimate"
+    ),
+    year_quarter_required %in% params$next_4quarters
+  ) |>
+  ggplot(aes(
+    x = fct_reorder(country, value, .fun = sum, .desc = FALSE), 
+    y = value,
+    fill = funding_source_group
+  )) +
+  #  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
+  geom_col() +
+  scale_fill_manual(values = c(
+    "#8c510a", # TBD
+    "#d8b365", # Other
+    "#f6e8c3", # Govt
+    "#c7eae5", # UNFPA
+    "#5ab4ac", # UNFPA CO financing
+    "#01665e" # USAID
+  )) +
+  labs(
+#    title = "",
+#    subtitle = "",
+    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:\nData represents requirements for the next 4 quarters",
+      importdate_pds,
+      sep = " "
+    ),
+    x = "",
+    y = ""
+  ) +
+  mytheme() +
+  theme(axis.text.x = element_text(
+    hjust = 1,
+    angle = 60
+  )) +
+  theme(legend.position = "none"
+          #    legend.title = element_blank(),
+           #   legend.text = element_text(size = 6,
+            #                             color = color_plot_text)
+        )+
+  scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale())) +
+  #  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
+  #                               str_c("$",value),
+  #                               "")),
+  #            position = position_fill(vjust=0.5),
+  #            colour="white",
+  #            size = 2)
+  coord_flip()
+
+# girafe(
+#   ggobj = gg_supplyplan,
+#   options = list(opts_sizing(rescale = FALSE),
+#                  opts_tooltip(zindex = 9999),
+#                  opts_hover(css = ''),
+#                  opts_hover_inv(css = 'opacity:0.2;'))
+#   )
+}
+
+```
+
+
+```{r dataviz_setup_countrypercent}
+#| output: true
+
+# can use stat=count in geom_bar (with pds and no y in aes) to get a percent stacked chart, however in order to get the percentages to use in text, we need to calculate them first and then use stat= identity iwth a y in aes.
+
+gg_country_percent <- function(countrygroup){
+  
+supplyplan_grouped <- supplyplan |> 
+  filter(prh_countrygroup == countrygroup,
+         collab_review_status %in% c("In Review",
+                                     "Ready to Use Approved",
+                                     "Ready to Use Estimate"),
+         year_quarter_required %in% params$next_4quarters) |> 
+  group_by(country, funding_source_group) |> 
+  summarise(value = sum(value)) |> 
+  ungroup()
+
+#gg_supplyplan_grouped <-
+supplyplan_grouped |> 
+   ggplot(aes(x = fct_reorder(country, 
+                              value,
+                              .fun = sum,
+                              .desc = FALSE),
+             y = value,
+             fill = funding_source_group)) +
+#  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = c(
+    "#8c510a", # TBD
+    "#d8b365", # Other
+    "#f6e8c3", # Govt
+    "#c7eae5", # UNFPA
+    "#5ab4ac", # UNFPA CO financing
+    "#01665e"  # USAID 
+  )) + 
+  labs(
+#    title = str_c("In ", 
+#                  params$time_period,
+#                  ", ", 
+#                  percent_reasoncode,
+#                  "% of orders had a reason code applied"),
+    subtitle = (""),
+#    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:",
+#                    importdate_pds,
+#                    sep = " "),
+    x = "",
+    y = ""
+  ) +
+  mytheme() +
+  theme(axis.text.x = element_text(hjust = 1,
+                                   angle = 60))+
+  
+  theme(legend.position = "bottom",
+              legend.title = element_blank(),
+              legend.text = element_text(size = 6,
+                                         color = color_plot_text))+
+  
+  scale_y_continuous(labels = scales::percent) +
+#  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
+#                               str_c(percent*100,"%"),
+#                               "")),
+#            position = position_fill(vjust=0.5),
+#            colour="white", 
+#            size = 2)
+  coord_flip()
+
+# girafe(
+#   ggobj = gg_supplyplan_grouped,
+#   options = list(opts_sizing(rescale = FALSE),
+#                  opts_tooltip(zindex = 9999),
+#                  opts_hover(css = ''),
+#                  opts_hover_inv(css = 'opacity:0.2;'))
+#   )
+}
+```
+
+
+```{r table_setup_supplyplan}
+
+table_supplyplan <- function(countrygroup) {
+  supplyplan |>
+    filter(
+      prh_countrygroup == countrygroup,
+      collab_review_status %in% c(
+        "In Review",
+        "Ready to Use Approved",
+        "Ready to Use Estimate"
+      ),
+      year_quarter_required %in% params$next_4quarters
+    ) |>
+    group_by(country, supply_plan, last_updated_in_the_van) |>
+    summarise(total_requirement = sum(value)) |>
+    ungroup() |>
+    gt() |>
+    tab_header(
+      title = "Total commodity funding requirements in the supply plan for the next 4 quarters"
+    ) |>
+    cols_label(
+      country = "Country",
+      supply_plan = "Program",
+      last_updated_in_the_van = "Date updated in the GFPVAN",
+      total_requirement = "Requirement"
+    ) |>
+    fmt_number(
+      columns = "total_requirement",
+      decimals = 0,
+      pattern = "${x}",
+      suffixing = TRUE
+    ) |>
+    sub_missing(missing_text = "-") |>
+    opt_stylize(style = 6, color = "blue")
+}
+```
+
+# High Need
+
+## Col1 {.tabset}
+
+```{r firsttab_highneed_overallvalue}
+#| output: true
+#| title: Overall
+
+gg_supplyplan_overall("High Need") 
+```
+
+```{r tab_highneed_numberprograms}
+#| output: true
+#| title: Number of programs
+
+gg_numberprograms("High Need")
+```
+
+```{r secondtab_highneed_countryvalue}
+#| output: true
+#| title: By Country
+
+gg_supplyplan_country("High Need") +
+  gg_country_percent("High Need")
+
+```
+
+```{r thirdtab_highneed_supplyplandetails}
+#| output: true
+#| title: Supply Plan Details
+
+table_supplyplan("High Need")
+
+```
+
+# Strategic Support
+
+## Col1 {.tabset}
+
+```{r firsttab_strategicsupport_overallvalue}
+#| output: true
+#| title: Overall
+
+gg_supplyplan_overall("Strategic Support")
+```
+
+```{r secondtab_strategicsupport_countryvalue}
+#| output: true
+#| title: By Country
+
+gg_supplyplan_country("Strategic Support")
+```
+
+```{r thirdtab_strategicsupport_supplyplandetails}
+#| output: true
+#| title: Supply Plan Details
+
+table_supplyplan("Strategic Support")
+```
+
+# Strategic Transition
+
+## Col1 {.tabset}
+
+```{r firsttab_strategictransition_overallvalue}
+#| output: true
+#| title: Overall
+
+gg_supplyplan_overall("Strategic Transition")
+
+```
+
+```{r secondtab_strategictransition_countryvalue}
+#| output: true
+#| title: By Country
+
+gg_supplyplan_country("Strategic Transition")
+```
+
+```{r thirdtab_strategictransition_supplyplandetails}
+#| output: true
+#| title: Supply Plan Details
+
+table_supplyplan("Strategic Transition")
+```
+
+# Other Countries
+
+## Col1 {.tabset}
+
+```{r firsttab_other_overallvalue}
+#| output: true
+#| title: Overall
+
+gg_supplyplan_overall("other")
+
+```
+
+```{r secondtab_other_countryvalue}
+#| output: true
+#| title: By Country
+
+gg_supplyplan_country("other")
+```
+
+```{r thirdtab_other_supplyplandetails}
+#| output: true
+#| title: Supply Plan Details
+
+table_supplyplan("other")
+```
+
+# x
 
 ```{r dataviz_highneed_percent}
 #| output: true
+#| eval: false
+
+#TODO something is wrong with percentage calculation
 
 # time_period <- c("2024-2","2024-3","2024-4","2025-1") 
 
@@ -387,7 +727,14 @@ supplyplan_grouped |>
   geom_bar(
                         stat = "identity",
                        position = "fill") +
-  scale_fill_brewer(palette = "YlGnBu") +
+  scale_fill_manual(values = c(
+    "#8c510a", # TBD
+    "#d8b365", # Other
+    "#f6e8c3", # Govt
+    "#c7eae5", # UNFPA
+    "#5ab4ac", # UNFPA CO financing
+    "#01665e"  # USAID 
+  )) + 
   labs(
     x = "",
     y = "FP/RH Commodity Value (%)"
@@ -402,121 +749,6 @@ supplyplan_grouped |>
 #            position = position_fill(vjust=0.5),
 #            colour="white", 
 #            size = 2)
-
-# girafe(
-#   ggobj = gg_supplyplan_grouped,
-#   options = list(opts_sizing(rescale = FALSE),
-#                  opts_tooltip(zindex = 9999),
-#                  opts_hover(css = ''),
-#                  opts_hover_inv(css = 'opacity:0.2;'))
-#   )
-```
-
-# High Need: By country
-
-
-## Col1 actual value
-
-```{r dataviz_highneed_value_country}
-#| output: true
-
-#gg_supplyplan_grouped <-
-supplyplan |> 
-  filter(prh_countrygroup == "High Need",
-         collab_review_status %in% c("In Review",
-                                     "Ready to Use Approved",
-                                     "Ready to Use Estimate"),
-         year_quarter_required %in% params$next_4quarters) |> 
-   ggplot(aes(x = country,
-             y = value,
-             fill = funding_source_group)) +
-#  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
-  geom_col() +
-  scale_fill_brewer(palette = "YlGnBu") +
-  labs(
-    title = "Funding landscape for the next 4 quarters",
-    subtitle = "",
-    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:",
-                    importdate_pds,
-                    sep = " "),
-    x = "",
-    y = "FP/RH Commodity Value "
-  ) +
-  mytheme() +
-  theme(axis.text.x = element_text(hjust = 1,
-                                   angle = 60))+
-  scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale()) ) + 
-#  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
-#                               str_c("$",value),
-#                               "")),
-#            position = position_fill(vjust=0.5),
-#            colour="white", 
-#            size = 2)
-  coord_flip()
-
-# girafe(
-#   ggobj = gg_supplyplan_grouped,
-#   options = list(opts_sizing(rescale = FALSE),
-#                  opts_tooltip(zindex = 9999),
-#                  opts_hover(css = ''),
-#                  opts_hover_inv(css = 'opacity:0.2;'))
-#   )
-```
-
-## Col2 stacked percentage chart
-
-```{r dataviz_highneed_percent_country}
-#| output: true
-
-# time_period <- c("2024-2","2024-3","2024-4","2025-1") 
-
-# can use stat=count in geom_bar (with pds and no y in aes) to get a percent stacked chart, however in order to get the percentages to use in text, we need to calculate them first and then use stat= identity iwth a y in aes.
-
-supplyplan_grouped <- supplyplan |> 
-  filter(prh_countrygroup == "High Need",
-         collab_review_status %in% c("In Review",
-                                     "Ready to Use Approved",
-                                     "Ready to Use Estimate"),
-         year_quarter_required %in% params$time_period) |> 
-  group_by(country, funding_source_group) |> 
-  dplyr::tally() |> 
-  dplyr::mutate(percent= round(n/sum(n),2)) 
-
-# doing a count instead of group_by/tally will not change n but will change sum(n)-- with a count sum(n) is sum of n across all groups, with group_by/tally sum(n) is sum of n in the immediate higher group
-
-#gg_supplyplan_grouped <-
-supplyplan_grouped |> 
-   ggplot(aes(x = country,
-             y = n,
-             fill = funding_source_group)) +
-#  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
-  geom_bar(             stat = "identity",
-                       position = "fill") +
-  scale_fill_brewer(palette = "YlGnBu") +
-  labs(
-#    title = str_c("In ", 
-#                  params$time_period,
-#                  ", ", 
-#                  percent_reasoncode,
-#                  "% of orders had a reason code applied"),
-    subtitle = (""),
-    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:",
-                    importdate_pds,
-                    sep = " "),
-    x = "",
-    y = "FP/RH Commodity Value (%) "
-  ) +
-  mytheme() +
-  theme(axis.text.x = element_text(hjust = 1,
-                                   angle = 60))+
-  scale_y_continuous(labels = scales::percent) +
-#  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
-#                               str_c(percent*100,"%"),
-#                               "")),
-#            position = position_fill(vjust=0.5),
-#            colour="white", 
-#            size = 2)
-  coord_flip()
 
 # girafe(
 #   ggobj = gg_supplyplan_grouped,
