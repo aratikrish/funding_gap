@@ -115,6 +115,11 @@ see_distinct(supplyplan, supplier)
 see_distinct(supplyplan, funding_source)
 see_distinct(supplyplan, funding_status)
 
+# clean up country - DRC is too long (note: check that the only Congo for which data exists is DRC)
+supplyplan <- supplyplan |> 
+  mutate(country = case_when(str_detect(country, "Congo") ~ "DRC",
+                             TRUE ~ country) )
+
 # Check if there are unfunded lines that have a source.
 supplyplan |>
   filter(funding_status == "unfunded",
@@ -310,6 +315,18 @@ mytheme <- function() {
       
 }
 
+#create color mapping
+
+scale_fill_custom <- scale_fill_manual(
+ values = c(
+    "TBD" = "#f6e8c3", 
+    "other" = "#d8b365", 
+    "Government" = "#8c510a", 
+    "UNFPA" = "#c7eae5", 
+    "UNFPA C.O. Co-financing agreement" = "#5ab4ac", 
+    "USAID" = "#01665e" 
+  ))
+
 ```
 
 ```{r dataviz_setup_overallvalue}
@@ -332,14 +349,6 @@ supplyplan |>
   )) +
   #  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
   geom_col() +
-  scale_fill_manual(values = c(
-    "#8c510a", # TBD
-    "#d8b365", # Other
-    "#f6e8c3", # Govt
-    "#c7eae5", # UNFPA
-    "#5ab4ac", # UNFPA CO financing
-    "#01665e"  # USAID 
-  )) + 
   labs(
     caption = str_c("Data source: Supply plans from the GFPVAN\nData downloaded:",
       importdate_pds, "\nDifferent quarters may include a different set of countries and programs",
@@ -349,6 +358,7 @@ supplyplan |>
     y = "FP/RH Commodity Value "
   ) +
   mytheme() +
+  scale_fill_custom +
   theme(axis.text.x = element_text(
     hjust = 1,
     angle = 60
@@ -383,7 +393,7 @@ gg_numberprograms <- function(countrygroup){
   
 supplyplan |>
   filter(
-    prh_countrygroup == "High Need",
+    prh_countrygroup == countrygroup,
     collab_review_status %in% c(
       "In Review",
       "Ready to Use Approved",
@@ -393,7 +403,11 @@ supplyplan |>
   ) |>
   group_by(year_quarter_required) |>
   summarise(numberprograms = n_distinct(str_c(country, " ", supply_plan))) |> 
-  gt()
+  gt()|>
+    cols_label(
+      year_quarter_required = "Calendar Year - Quarter",
+      numberprograms = "Number of Programs"
+    ) 
 }
 
 ```
@@ -419,33 +433,26 @@ gg_supplyplan_country <- function(countrygroup){
   )) +
   #  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
   geom_col() +
-  scale_fill_manual(values = c(
-    "#8c510a", # TBD
-    "#d8b365", # Other
-    "#f6e8c3", # Govt
-    "#c7eae5", # UNFPA
-    "#5ab4ac", # UNFPA CO financing
-    "#01665e" # USAID
-  )) +
   labs(
 #    title = "",
 #    subtitle = "",
-    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:\nData represents requirements for the next 4 quarters",
-      importdate_pds,
-      sep = " "
-    ),
+#    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:\nData represents requirements for the next 4 quarters",
+#      importdate_pds,
+#      sep = " "
+#    ),
     x = "",
     y = ""
   ) +
   mytheme() +
+  scale_fill_custom +
   theme(axis.text.x = element_text(
     hjust = 1,
     angle = 60
   )) +
-  theme(legend.position = "none"
-          #    legend.title = element_blank(),
-           #   legend.text = element_text(size = 6,
-            #                             color = color_plot_text)
+  theme(legend.position = "top",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 6,
+                                    color = color_plot_text)
         )+
   scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale())) +
   #  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
@@ -466,7 +473,6 @@ gg_supplyplan_country <- function(countrygroup){
 }
 
 ```
-
 
 ```{r dataviz_setup_countrypercent}
 #| output: true
@@ -495,14 +501,7 @@ supplyplan_grouped |>
              fill = funding_source_group)) +
 #  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
   geom_bar(stat = "identity", position = "fill") +
-  scale_fill_manual(values = c(
-    "#8c510a", # TBD
-    "#d8b365", # Other
-    "#f6e8c3", # Govt
-    "#c7eae5", # UNFPA
-    "#5ab4ac", # UNFPA CO financing
-    "#01665e"  # USAID 
-  )) + 
+  scale_fill_custom + 
   labs(
 #    title = str_c("In ", 
 #                  params$time_period,
@@ -520,10 +519,11 @@ supplyplan_grouped |>
   theme(axis.text.x = element_text(hjust = 1,
                                    angle = 60))+
   
-  theme(legend.position = "bottom",
-              legend.title = element_blank(),
-              legend.text = element_text(size = 6,
-                                         color = color_plot_text))+
+  theme(legend.position = "none",
+     #         legend.title = element_blank(),
+    #          legend.text = element_text(size = 6,
+     #                                    color = color_plot_text)
+    )+
   
   scale_y_continuous(labels = scales::percent) +
 #  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
@@ -543,7 +543,6 @@ supplyplan_grouped |>
 #   )
 }
 ```
-
 
 ```{r table_setup_supplyplan}
 
@@ -727,14 +726,7 @@ supplyplan_grouped |>
   geom_bar(
                         stat = "identity",
                        position = "fill") +
-  scale_fill_manual(values = c(
-    "#8c510a", # TBD
-    "#d8b365", # Other
-    "#f6e8c3", # Govt
-    "#c7eae5", # UNFPA
-    "#5ab4ac", # UNFPA CO financing
-    "#01665e"  # USAID 
-  )) + 
+  custom_col_scale + 
   labs(
     x = "",
     y = "FP/RH Commodity Value (%)"
