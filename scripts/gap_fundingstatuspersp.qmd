@@ -439,7 +439,6 @@ gg_country_value <- function(countrygroup){
   #  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
   geom_col() +
   labs(
-    title = "Requirements for the next four quarters",
     x = "",
     y = ""
   ) +
@@ -612,7 +611,7 @@ gg_numberprograms("High Need")
 
 ```{r thirdtab_highneed_countryvalue}
 #| output: true
-#| title: By Country
+#| title: By Country- Requirements for next 4 quarters
 
 gg_country_value("High Need") +
   gg_country_percent("High Need")
@@ -648,9 +647,10 @@ gg_numberprograms("Strategic Support")
 
 ```{r thirdtab_strategicsupport_countryvalue}
 #| output: true
-#| title: By Country
+#| title: By Country- Requirements for next 4 quarters
 
-gg_country_value("Strategic Support")
+gg_country_value("Strategic Support")+
+  gg_country_percent("Strategic Support")
 ```
 
 ```{r fourthtab_strategicsupport_supplyplandetails}
@@ -681,9 +681,10 @@ gg_numberprograms("Strategic Transition")
 
 ```{r thirdtab_strategictransition_countryvalue}
 #| output: true
-#| title: By Country
+#| title: By Country- Requirements for next 4 quarters
 
-gg_country_value("Strategic Transition")
+gg_country_value("Strategic Transition")+
+  gg_country_percent("Strategic Transition")
 ```
 
 ```{r fourthtab_strategictransition_supplyplandetails}
@@ -714,9 +715,10 @@ gg_numberprograms("other")
 
 ```{r thirdtab_other_countryvalue}
 #| output: true
-#| title: By Country
+#| title: By Country- Requirements for next 4 quarters
 
-gg_country_value("other")
+gg_country_value("other")+
+  gg_country_percent("other")
 ```
 
 ```{r fourthtab_other_supplyplandetails}
