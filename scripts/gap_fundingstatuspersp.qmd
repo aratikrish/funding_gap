@@ -52,8 +52,6 @@ supplyplan_raw <- import(here("data/raw_data", "funding_status_per_sp_240207.xls
                   na = c("", " ","NA"),
                   )
 
-importdate_pds <- "Feb 2024"
-
 #TO DO check why using import results in "" not being read as NAs and warnings
 ```
 
@@ -306,8 +304,6 @@ mytheme <- function() {
               
               # axis.line = element_blank(),
               
-         
-              
               # text =  element_text(color = color_plot_text,
               # this will change all text size (except geom_text)
               #                          size = 14,
@@ -513,19 +509,8 @@ supplyplan_grouped |>
   theme(axis.text.x = element_text(hjust = 1,
                                    angle = 60))+
   
-  theme(legend.position = "none"
-      # legend.title = element_blank(),
-      #        legend.text = element_text(size = 8,
-      #                                   color = color_plot_text)
-    )+
-  
+  theme(legend.position = "none")+
   scale_y_continuous(labels = scales::percent) +
-#  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
-#                               str_c(percent*100,"%"),
-#                               "")),
-#            position = position_fill(vjust=0.5),
-#            colour="white", 
-#            size = 2)
   coord_flip()
 
 # girafe(
