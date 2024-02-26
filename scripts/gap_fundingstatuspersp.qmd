@@ -1,6 +1,6 @@
 ---
 title: "FP/RH Commodity Funding Gap Analysis"
-subtitle: "February 2024"
+subtitle: " February 2024"
 author: ""
 format: 
   dashboard:
@@ -13,6 +13,7 @@ execute:
 params: 
   time_period: !expr c("2021-1","2021-2","2021-3","2021-4","2022-1","2022-2","2022-3","2022-4","2023-1","2023-2","2023-3","2023-4","2024-1","2024-2","2024-3","2024-4","2025-1") 
   next_4quarters: !expr c("2024-2","2024-3","2024-4","2025-1") 
+  import_date: "Feb 2024"
 ---
 
 ```{r purpose_version}
@@ -291,14 +292,14 @@ mytheme <- function() {
               
               plot.margin = ggplot2::margin(15, 15, 10, 15), #top, right, bottom, left
               
-              axis.title = element_text(size = 12, # adjusts both axes titles
+              axis.title = element_text(size = 8, # adjusts both axes titles
                                         color = color_caption,
                                         vjust = 2),          
-              axis.text.x = element_text(size = 10,
+              axis.text.x = element_text(size = 8,
                                       #   angle = 60, 
                                       #   hjust = 1,
                                          color = color_plot_text),
-              axis.text.y = element_text(size = 10,
+              axis.text.y = element_text(size = 8,
                                          color = color_plot_text),
               
               # axis.ticks = element_blank(),
@@ -331,50 +332,52 @@ scale_fill_custom <- scale_fill_manual(
 
 ```{r dataviz_setup_overallvalue}
 
-gg_supplyplan_overall <- function(countrygroup){
+gg_overall <- function(countrygroup){
 supplyplan |>
-  filter(
-    prh_countrygroup == countrygroup,
-    collab_review_status %in% c(
-      "In Review",
-      "Ready to Use Approved",
-      "Ready to Use Estimate"
-    ),
-    year_quarter_required %in% params$time_period
-  ) |>
+  filter(prh_countrygroup == countrygroup,
+         collab_review_status %in% c( "In Review",
+                                      "Ready to Use Approved",
+                                      "Ready to Use Estimate"
+                                      ),
+         year_quarter_required %in% params$time_period
+         ) |>
+  group_by(year_quarter_required, funding_source_group) |> 
+  summarize(value = sum(value)) |> 
   ggplot(aes(
     x = year_quarter_required,
     y = value,
     fill = funding_source_group
   )) +
+  geom_col()+
   #  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
-  geom_col() +
   labs(
-    caption = str_c("Data source: Supply plans from the GFPVAN\nData downloaded:",
-      importdate_pds, "\nDifferent quarters may include a different set of countries and programs",
-      sep = " "
-    ),
     x = "",
-    y = "FP/RH Commodity Value "
+    y = "FP/RH Commodity Financing Requirement"
   ) +
   mytheme() +
   scale_fill_custom +
   theme(axis.text.x = element_text(
-    hjust = 1,
-    angle = 60
-  )) +
-  theme(     legend.position = "right",
-              legend.title = element_blank(),
-              legend.text = element_text(size = 10,
-                                         color = color_plot_text)
-             )+
-  scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale()))
-#  geom_text(aes(label = ifelse(year_quarter_required %in% params$time_period,
-#                               str_c("$",value),
-#                               "")),
-#            position = position_fill(vjust=0.5),
-#            colour="white",
-#            size = 2)
+        hjust = 1,
+        angle = 60
+        )) +
+  theme(legend.position = "right",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8,
+                                   color = color_plot_text)
+                                   ) +
+  scale_y_continuous(
+    labels = scales::label_dollar(scale_cut = scales::cut_short_scale())) +
+  geom_text(aes(
+    label = ifelse(
+      ((year_quarter_required %in% params$time_period) &
+      (funding_source_group == "TBD")&
+        value != 0),
+      scales::label_dollar(accuracy=1.,
+        scale_cut = scales::cut_short_scale())(value),
+      "")
+    ),
+    position = position_stack(vjust = 0.5),
+    size = 2)
 
 # girafe(
 #   ggobj = gg_supplyplan_grouped,
@@ -415,7 +418,7 @@ supplyplan |>
 ```{r dataviz_setup_countryvalue}
 
 
-gg_supplyplan_country <- function(countrygroup){
+gg_country_value <- function(countrygroup){
   supplyplan |>
   filter(
     prh_countrygroup == countrygroup,
@@ -434,12 +437,7 @@ gg_supplyplan_country <- function(countrygroup){
   #  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
   geom_col() +
   labs(
-#    title = "",
-#    subtitle = "",
-#    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:\nData represents requirements for the next 4 quarters",
-#      importdate_pds,
-#      sep = " "
-#    ),
+    title = "Requirements for the next four quarters",
     x = "",
     y = ""
   ) +
@@ -451,7 +449,7 @@ gg_supplyplan_country <- function(countrygroup){
   )) +
   theme(legend.position = "top",
         legend.title = element_blank(),
-        legend.text = element_text(size = 6,
+        legend.text = element_text(size = 8,
                                     color = color_plot_text)
         )+
   scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale())) +
@@ -503,15 +501,6 @@ supplyplan_grouped |>
   geom_bar(stat = "identity", position = "fill") +
   scale_fill_custom + 
   labs(
-#    title = str_c("In ", 
-#                  params$time_period,
-#                  ", ", 
-#                  percent_reasoncode,
-#                  "% of orders had a reason code applied"),
-    subtitle = (""),
-#    caption = str_c("Data Source: Supply plans from the Global Family Planning Visibility & Analytics Network (GFPVAN)\nData downloaded on:",
-#                    importdate_pds,
-#                    sep = " "),
     x = "",
     y = ""
   ) +
@@ -519,10 +508,10 @@ supplyplan_grouped |>
   theme(axis.text.x = element_text(hjust = 1,
                                    angle = 60))+
   
-  theme(legend.position = "none",
-     #         legend.title = element_blank(),
-    #          legend.text = element_text(size = 6,
-     #                                    color = color_plot_text)
+  theme(legend.position = "none"
+      # legend.title = element_blank(),
+      #        legend.text = element_text(size = 8,
+      #                                   color = color_plot_text)
     )+
   
   scale_y_continuous(labels = scales::percent) +
@@ -581,6 +570,20 @@ table_supplyplan <- function(countrygroup) {
 }
 ```
 
+#  {.sidebar}
+
+-   Data source: Supply plans downloaded from the GFPVAN on `{r} params$import_date`
+
+-   Requirements include commodity costs and shipping costs at 20% of commodity value.
+
+-   Requirements are per the countries' supply plans and include the safety stock inventory requirements at the central warehouse.
+
+-   Different quarters may include a different set of countries and programs
+
+-   UNFPA's 1st tranche of funding is expected in March and is not yet reflected in these charts. Typically there is a 2nd and 3rd tranche in July and December.
+
+-   USAID OP funds have not been approved yet for many countries and are not fully reflected in these charts.
+
 # High Need
 
 ## Col1 {.tabset}
@@ -589,7 +592,7 @@ table_supplyplan <- function(countrygroup) {
 #| output: true
 #| title: Overall
 
-gg_supplyplan_overall("High Need") 
+gg_overall("High Need") 
 ```
 
 ```{r tab_highneed_numberprograms}
@@ -603,7 +606,7 @@ gg_numberprograms("High Need")
 #| output: true
 #| title: By Country
 
-gg_supplyplan_country("High Need") +
+gg_country_value("High Need") +
   gg_country_percent("High Need")
 
 ```
@@ -624,14 +627,14 @@ table_supplyplan("High Need")
 #| output: true
 #| title: Overall
 
-gg_supplyplan_overall("Strategic Support")
+gg_overall("Strategic Support")
 ```
 
 ```{r secondtab_strategicsupport_countryvalue}
 #| output: true
 #| title: By Country
 
-gg_supplyplan_country("Strategic Support")
+gg_country_value("Strategic Support")
 ```
 
 ```{r thirdtab_strategicsupport_supplyplandetails}
@@ -649,7 +652,7 @@ table_supplyplan("Strategic Support")
 #| output: true
 #| title: Overall
 
-gg_supplyplan_overall("Strategic Transition")
+gg_overall("Strategic Transition")
 
 ```
 
@@ -657,7 +660,7 @@ gg_supplyplan_overall("Strategic Transition")
 #| output: true
 #| title: By Country
 
-gg_supplyplan_country("Strategic Transition")
+gg_country_value("Strategic Transition")
 ```
 
 ```{r thirdtab_strategictransition_supplyplandetails}
@@ -675,7 +678,7 @@ table_supplyplan("Strategic Transition")
 #| output: true
 #| title: Overall
 
-gg_supplyplan_overall("other")
+gg_overall("other")
 
 ```
 
@@ -683,7 +686,7 @@ gg_supplyplan_overall("other")
 #| output: true
 #| title: By Country
 
-gg_supplyplan_country("other")
+gg_country_value("other")
 ```
 
 ```{r thirdtab_other_supplyplandetails}
