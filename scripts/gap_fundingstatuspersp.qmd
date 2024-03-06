@@ -33,7 +33,9 @@ pacman::p_load("tidyverse",
                "RColorBrewer",
                "gt",
                "ggiraph",
-               "patchwork" # for 2 plots side by side
+               "patchwork", # for 2 plots side by side
+               "crosstalk"  # inter-widget interactivity
+
             )
 
 
@@ -329,6 +331,7 @@ scale_fill_custom <- scale_fill_manual(
 ```{r dataviz_setup_overallvalue}
 
 gg_overall <- function(countrygroup){
+
 supplyplan |>
   filter(prh_countrygroup == countrygroup,
          collab_review_status %in% c( "In Review",
@@ -365,9 +368,9 @@ supplyplan |>
     labels = scales::label_dollar(scale_cut = scales::cut_short_scale())) +
   geom_text(aes(
     label = ifelse(
-      ((year_quarter_required %in% params$next_4quarters) &
-      (funding_source_group == "TBD")&
-        value != 0),
+      
+      (funding_source_group == "TBD" &
+        value >= 1000000), # Show value if TBD >= $1M
       scales::label_dollar(accuracy=1.,
         scale_cut = scales::cut_short_scale())(value),
       "")
@@ -564,7 +567,7 @@ table_supplyplan <- function(countrygroup) {
 
 -   Data source: Supply plans downloaded from the GFPVAN on `{r} params$import_date`
 
-- Includes data marked "ready to use approved", "ready to use estimate" and "in review" in the GFPVAN
+-   Includes data marked "ready to use approved", "ready to use estimate" and "in review" in the GFPVAN
 
 -   Requirements include commodity costs and shipping costs at 20% of commodity value.
 
@@ -621,7 +624,6 @@ table_supplyplan("High Need")
 
 gg_overall("Strategic Support")
 ```
-
 
 ```{r secondtab_strategicsupport_numberprograms}
 #| output: true
@@ -713,3 +715,29 @@ gg_country_value("other")+
 table_supplyplan("other")
 ```
 
+# Data
+
+```{r country_data}
+#| output: true
+
+supplyplan |> 
+  filter(collab_review_status %in% c("In Review",
+                                    "Ready to Use Approved",
+                                     "Ready to Use Estimate"),
+         year_quarter_required %in% params$next_4quarters) |> 
+  group_by(country) |> 
+  mutate(total_requirement = sum(value)) |> 
+  group_by(prh_countrygroup, country, funding_source_group) |> 
+  mutate(value_group = round(sum(value),0),
+         percent_group = round(sum(value)/total_requirement*100),0) |> 
+  distinct(prh_countrygroup, 
+         country, 
+         total_requirement,
+         funding_source_group, 
+         value_group, 
+         percent_group) |> 
+  ungroup() |> 
+  gt() |> 
+    opt_stylize(style = 6, color = "blue")
+
+```
