@@ -13,7 +13,7 @@ execute:
 params: 
   time_period: !expr c("2021-1","2021-2","2021-3","2021-4","2022-1","2022-2","2022-3","2022-4","2023-1","2023-2","2023-3","2023-4","2024-1","2024-2","2024-3","2024-4","2025-1") 
   next_4quarters: !expr c("2024-2","2024-3","2024-4","2025-1") 
-  import_date: "Feb 2024"
+  import_date: "Mar 2024"
 ---
 
 ```{r purpose_version}
@@ -33,8 +33,9 @@ pacman::p_load("tidyverse",
                "RColorBrewer",
                "gt",
                "ggiraph",
-               "patchwork", # for 2 plots side by side
-               "crosstalk"  # inter-widget interactivity
+               "patchwork" # for 2 plots side by side
+              # "crosstalk",  # inter-widget interactivity
+              # "plotly" # convert ggplot to a html widget
 
             )
 
@@ -50,7 +51,7 @@ see_distinct <- function(df, var){
 
 ```{r importdata_supplyplan}
 
-supplyplan_raw <- import(here("data/raw_data", "funding_status_per_sp_240207.xlsx"),
+supplyplan_raw <- import(here("data/raw_data", "funding_status_per_sp_MM_240322.xlsx"),
                   na = c("", " ","NA"),
                   )
 
@@ -63,8 +64,7 @@ supplyplan_raw |> glimpse()
 
 # clean names
 supplyplan <- supplyplan_raw |> 
-  clean_names() |>  
-  glimpse() 
+  clean_names() 
 
 supplyplan <- supplyplan |>  
   # rename columns
@@ -73,8 +73,20 @@ supplyplan <- supplyplan |>
     country     = country_name,
     supply_plan = supply_plan_description) |> 
   # remove the total qty column
-  select(!total_qty_funded_firm_supply_plan_value) |> 
-  glimpse()
+  select(!total_qty_funded_firm_supply_plan_value) 
+
+# Fix problems with date column 240327
+supplyplan <- supplyplan |> 
+  mutate(date_required = lubridate::my(date)) #9 rows failed to parse
+
+which(is.na(supplyplan$date_required)) 
+
+supplyplan |> 
+  filter(is.na(date_required)) |> 
+  select(country, supply_plan, l5_product,date,date_required) |> 
+  gt()
+# all are Mozambique rows where date = "-" in original file
+
 
 # pivot longer to make supplyplan tidy
 
@@ -97,19 +109,18 @@ supplyplan <- supplyplan |>
     cols = starts_with("quantity_") | starts_with("value_"),
     names_to = c(".value", "funding_status"),
     names_sep = "_",
-    values_drop_na = TRUE ) |> 
-  glimpse()
+    values_drop_na = TRUE ) 
 
 # Analyzing categorical columns
 
-skimr::skim(supplyplan)
+#skimr::skim(supplyplan)
 
 # basic categorical check
 see_distinct(supplyplan, country) # note there is -
 see_distinct(supplyplan, supply_plan)
 see_distinct(supplyplan, l3_method)
 see_distinct(supplyplan, l5_product)
-see_distinct(supplyplan, date)
+see_distinct(supplyplan, date_required)
 see_distinct(supplyplan, collab_review_status) # note per Maggie - is used for a product that is no longer managed
 see_distinct(supplyplan, last_updated_in_the_van)
 see_distinct(supplyplan, supplier)
@@ -126,14 +137,16 @@ supplyplan |>
   filter(funding_status == "unfunded",
          collab_review_status %in% c("Ready To Use Approved",
                                      "Ready To Use Estimate",
-                                      "In Review"),
+                                      "In Review",
+                                      "Manual update",
+                                      "Manual update ak"),
          !funding_source  %in% c("-","TBD"),
          value != 0.0) |>
   select(country, funding_source, funding_status, value, date) |>
   distinct(country, funding_source, funding_status, value, date) |> 
   gt()
 
-#TODO There are 9 lines that are unfunded but have a funding source. INVESTIGATE
+#TODO 240327 There are orders for Mozambique, Senegal, Madagascar and DRC that are unfunded but have a funding source. INVESTIGATE
 
 # clean up funding source
 supplyplan <- supplyplan |>
@@ -148,7 +161,19 @@ supplyplan <- supplyplan |>
   mutate(funding_source = case_when((funding_source == "-") ~ "TBD", 
                                      TRUE ~ funding_source))
 
-#TODO Check funding status for funding source TBD
+# Check funding status for funding source TBD
+supplyplan |>
+  filter(funding_status != "unfunded",
+         collab_review_status %in% c("Ready To Use Approved",
+                                     "Ready To Use Estimate",
+                                      "In Review",
+                                      "Manual update",
+                                      "Manual update ak"),
+         funding_source  %in% c("-","TBD"),
+         value != 0.0) |>
+  select(country, funding_source, funding_status, value, date_required) |>
+  distinct(country, funding_source, funding_status, value, date_required) |> 
+  gt()
 
 see_distinct(supplyplan, funding_source)
 
@@ -170,16 +195,17 @@ supplyplan <- supplyplan |>
                                                   "USAID"
                                                 )))
 
-# Changing field "date" to a date
+# Creating a field for quarter required
+
 supplyplan <- supplyplan |> 
-  mutate(date_required = lubridate::my(date),
+  mutate(
          year_quarter_required = str_c(year(date_required),
                                        "-",
                                        quarter(date_required)))
 
 supplyplan |> 
-  distinct(year_quarter_required, date_required,date) |> 
-  arrange(year_quarter_required, date_required,date) |> 
+  distinct(year_quarter_required, date_required) |> 
+  arrange(year_quarter_required, date_required) |> 
   gt()
 ```
 
@@ -246,13 +272,23 @@ supplyplan |>
   gt()
 # Data Wrangling - Analyzing numeric and date columns 
 
-supplyplan |>
-  select_if(is.numeric) |>
-  skimr::skim()
+#supplyplan |>
+#  select_if(is.numeric) |>
+#  skimr::skim()
+
+#TBD why is value showing as NA for a few lines
+supplyplan <- supplyplan |> 
+  mutate(value = case_when(is.na(value) ~ quantity * estimated_unit_value,
+                           TRUE ~ value)
+  )
+
+#check no more NAs in value
+supplyplan |> 
+  filter(is.na(value))
 
 # Exporting data 
 
-export(supplyplan, 
+rio::export(supplyplan, 
        file = here("data/wrangled_data", "supplyplanwrangled.csv"))
 ```
 
@@ -333,10 +369,12 @@ scale_fill_custom <- scale_fill_manual(
 gg_overall <- function(countrygroup){
 
 supplyplan |>
-  filter(prh_countrygroup == countrygroup,
+  filter(prh_countrygroup %in% countrygroup,
          collab_review_status %in% c( "In Review",
                                       "Ready to Use Approved",
-                                      "Ready to Use Estimate"
+                                      "Ready to Use Estimate",
+                                      "Manual update",
+                                      "Manual update ak"
                                       ),
          year_quarter_required %in% params$time_period
          ) |>
@@ -365,18 +403,20 @@ supplyplan |>
                                    color = color_plot_text)
                                    ) +
   scale_y_continuous(
-    labels = scales::label_dollar(scale_cut = scales::cut_short_scale())) +
-  geom_text(aes(
-    label = ifelse(
+    labels = scales::label_dollar(scale_cut = scales::cut_short_scale())) 
+# TODO figure out why code below is throwing an error
+#  +
+#  geom_text(aes(
+#    label = ifelse(
       
-      (funding_source_group == "TBD" &
-        value >= 1000000), # Show value if TBD >= $1M
-      scales::label_dollar(accuracy=1.,
-        scale_cut = scales::cut_short_scale())(value),
-      "")
-    ),
-    position = position_stack(vjust = 0.5),
-    size = 2)
+#      (funding_source_group == "TBD" &
+#        value >= 1000000), # Show value if TBD >= $1M
+#      scales::label_dollar(accuracy=1.,
+#        scale_cut = scales::cut_short_scale())(value),
+#      "")
+#    ),
+#    position = position_stack(vjust = 0.5),
+#    size = 2)
 
 # girafe(
 #   ggobj = gg_supplyplan_grouped,
@@ -399,7 +439,9 @@ supplyplan |>
     collab_review_status %in% c(
       "In Review",
       "Ready to Use Approved",
-      "Ready to Use Estimate"
+      "Ready to Use Estimate",
+      "Manual update",
+      "Manual update ak"
     ),
     year_quarter_required %in% params$time_period
   ) |>
@@ -424,7 +466,9 @@ gg_country_value <- function(countrygroup){
       collab_review_status %in% c(
         "In Review",
         "Ready to Use Approved",
-        "Ready to Use Estimate"
+        "Ready to Use Estimate",
+      "Manual update",
+      "Manual update ak"
       ),
       year_quarter_required %in% params$next_4quarters
     ) |>
@@ -453,16 +497,16 @@ gg_country_value <- function(countrygroup){
                                     color = color_plot_text)
         )+
   scale_y_continuous(labels = scales::label_dollar(scale_cut = scales::cut_short_scale())) +
-  geom_text(aes(
-    label = ifelse(
-        (funding_source_group == "TBD" &
-        value != 0),
-        scales::label_dollar(accuracy=1.,
-          scale_cut = scales::cut_short_scale())(value),
-        "")
-    ),
-    position = position_stack(vjust = 0.5),
-    size = 2) +
+#  geom_text(aes(
+#    label = ifelse(
+#        (funding_source_group == "TBD" &
+#        value != 0),
+#        scales::label_dollar(accuracy=1.,
+#          scale_cut = scales::cut_short_scale())(value),
+#        "")
+#    ),
+#    position = position_stack(vjust = 0.5),
+#    size = 2) +
   coord_flip()
 
 # girafe(
@@ -487,7 +531,9 @@ supplyplan_grouped <- supplyplan |>
   filter(prh_countrygroup == countrygroup,
          collab_review_status %in% c("In Review",
                                      "Ready to Use Approved",
-                                     "Ready to Use Estimate"),
+                                     "Ready to Use Estimate",
+                                      "Manual update",
+                                      "Manual update ak"),
          year_quarter_required %in% params$next_4quarters) |> 
   group_by(country, funding_source_group) |> 
   summarise(value = sum(value)) |> 
@@ -535,7 +581,9 @@ table_supplyplan <- function(countrygroup) {
       collab_review_status %in% c(
         "In Review",
         "Ready to Use Approved",
-        "Ready to Use Estimate"
+        "Ready to Use Estimate",
+      "Manual update",
+      "Manual update ak"
       ),
       year_quarter_required %in% params$next_4quarters
     ) |>
@@ -575,9 +623,7 @@ table_supplyplan <- function(countrygroup) {
 
 -   Different quarters may include a different set of countries and programs
 
--   UNFPA's 1st tranche of funding is expected in March and is not yet reflected in these charts. Typically there is a 2nd and 3rd tranche in July and December.
-
--   USAID OP funds have not been approved yet for many countries and are not fully reflected in these charts.
+-   UNFPA's 1st tranche of funding is reflected in these charts. Typically there is a 2nd and 3rd tranche in July and December that is not reflected on here.
 
 # High Need
 
@@ -723,7 +769,9 @@ table_supplyplan("other")
 supplyplan |> 
   filter(collab_review_status %in% c("In Review",
                                     "Ready to Use Approved",
-                                     "Ready to Use Estimate"),
+                                     "Ready to Use Estimate",
+                                      "Manual update",
+                                      "Manual update ak"),
          year_quarter_required %in% params$next_4quarters) |> 
   group_by(country) |> 
   mutate(total_requirement = sum(value)) |> 
@@ -739,5 +787,98 @@ supplyplan |>
   ungroup() |> 
   gt() |> 
     opt_stylize(style = 6, color = "blue")
+
+```
+
+# View by County
+
+```{r setup_viewbycountry_ojs}
+#| eval: false
+#| output: false
+
+country_data <-
+  supplyplan |>
+  filter(
+    collab_review_status %in% c( "In Review",
+                                      "Ready to Use Approved",
+                                      "Ready to Use Estimate",
+                                        "Manual update",
+                                        "Manual update ak"
+                                      ),
+         year_quarter_required %in% params$time_period
+         ) |>
+  group_by(country, year_quarter_required, funding_source_group) |> 
+  summarize(value = sum(value)) 
+  #|> 
+#  ungroup()
+
+
+sd <- SharedData$new(country_data)
+
+```
+
+## Filter
+
+```{r filters_viewbycountry_ojs}
+#| eval: false
+#| output: false
+
+country_filter = filter_select(id = "country",
+                               label = "country",
+                                sharedData = sd,
+                               group = ~country)
+```
+
+## Chart
+
+```{r dataviz_viewbycountry}
+#| output: true
+
+bscols(widths = c(10, 60),
+  country_filter, 
+ggplotly( 
+  ggplot(sd, aes(
+    x = year_quarter_required,
+    y = value,
+    fill = funding_source_group
+  )) +
+  geom_col()+
+  #  geom_bar_interactive(aes(tooltip = (percent*100)), # tooltip for ggiraph
+  labs(
+    x = "",
+    y = "FP/RH Commodity Financing Requirement"
+  ) +
+  mytheme() +
+  scale_fill_custom +
+  theme(axis.text.x = element_text(
+        hjust = 1,
+        angle = 60
+        )) +
+  theme(legend.position = "right",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 8,
+                                   color = color_plot_text)
+                                   ) +
+  scale_y_continuous(
+    labels = scales::label_dollar(scale_cut = scales::cut_short_scale())) +
+  geom_text(aes(
+    label = ifelse(
+      (funding_source_group == "TBD"), 
+      scales::label_dollar(accuracy=1.,
+        scale_cut = scales::cut_short_scale())(value),
+      "")
+    ),
+    position = position_stack(vjust = 0.5),
+    size = 2)
+) # close ggplotly
+) # close bscols
+
+# girafe(
+#   ggobj = gg_supplyplan_grouped,
+#   options = list(opts_sizing(rescale = FALSE),
+#                  opts_tooltip(zindex = 9999),
+#                  opts_hover(css = ''),
+#                  opts_hover_inv(css = 'opacity:0.2;'))
+#   )
 
 ```
